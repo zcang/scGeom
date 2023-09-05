@@ -1,0 +1,2 @@
+include scgeom/preprocessing/_data/NetworkDatabase/SCENT_network/*.csv
+include scgeom/preprocessing/_data/NetworkDatabase/SCENT_network/*.npz

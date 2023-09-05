@@ -1,0 +1,1 @@
+from ._network_database import get_gene_network
