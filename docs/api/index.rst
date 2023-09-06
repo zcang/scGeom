@@ -32,7 +32,8 @@ Tools: tl
 
 .. autosummary::
    :toctree: .
-  
+
+   
    tl.neighbor_graph
    tl.graph_curvature
    tl.gene_network_topology
