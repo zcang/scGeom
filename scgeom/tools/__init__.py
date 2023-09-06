@@ -1,12 +1,5 @@
 from ._geometry_tools import neighbor_graph
 from ._geometry_tools import graph_curvature
-from ._topology_tools import persistent_homology_density
-from ._topology_tools import persistent_homology_tomato
-from ._topology_tools import persistent_homology
-from ._topology_tools import clustering_topology
-from ._topology_tools import clustering_persistent_homology
-from ._topology_tools import decide_ncluster
-from ._topology_tools import confidence_band
 
 from ._topology_tools import gene_network_topology
 from ._topology_tools import cell_specific_gene_network_topology

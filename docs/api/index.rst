@@ -24,4 +24,18 @@ Preprocessing: pp
    pp.cell_specific_gene_network
 
 
+Tools: tl
+---------
 
+.. module:: scgeom.tl
+.. currentmodule:: scgeom
+
+.. autosummary::
+   :toctree: .
+  
+   tl.neighbor_graph
+   tl.graph_curvature
+   tl.gene_network_topology
+   tl.cell_specific_gene_network
+   tl.cell_network_topology
+   tl.generate_topology_feature

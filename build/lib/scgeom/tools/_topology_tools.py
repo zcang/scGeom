@@ -1,6 +1,7 @@
 from platform import node
 from re import I
 import numpy as np
+import anndata
 import gudhi
 import networkx as nx
 from scipy import sparse
@@ -13,9 +14,6 @@ import dionysus as dys
 import matplotlib.pyplot as plt
 from multiprocessing import Process, Manager
 
-from .._persistent_homology import persistent_homology_dtm
-from .._persistent_homology import value_based_persistent_homology
-
 from .._persistent_homology import ph_process_vbcl
 from .._persistent_homology import ph_process_lwph
 from .._persistent_homology import ph_process_rlph
@@ -27,18 +25,49 @@ from .._persistent_homology import ph_feature_persistence_entropy
 from .._persistent_homology import ph_feature_betti_curve
 
 def gene_network_topology(
-    adata,
-    network_name = 'gene_network',
-    filtration = 'vbcl',
-    max_filtration = None,
-    max_dim = 1,
-    n_cores = 20,
-    vbcl_edge_weight = 'min',
-    return_diagrams = False,
-    uns_name = 'diagrams',
+    adata: anndata.AnnData,
+    network_name: str = 'gene_network',
+    filtration: str = 'vbcl',
+    max_filtration: float = None,
+    max_dim: int = 1,
+    n_cores: int = 20,
+    vbcl_edge_weight: str = 'min',
+    return_diagrams: bool = False,
+    uns_name: str = 'diagrams',
 ):  
     """
-    vbcl: Vertex-based clique filtration (https://appliednetsci.springeropen.com/articles/10.1007/s41109-019-0179-3)
+    Compute gene network topology for node weighted gene networks.
+
+    Parameters
+    ----------
+    adata
+        The ``anndata`` object of gene expression data.
+    network_name
+        The network structure to be used should be available in ``adata.uns[network_name]``. Use ``pp.get_gene_network`` to obtain a knowledge-based gene network to be shared by each cell.
+    filtration
+        The filtration method for computing persistent homology. 'vbcl' for vertex-based clique complex filtration. Currently, only 'vbcl' is implemented.
+    max_filtration
+        The maximum filtration value. If ``None``, it is set to the maximum node weight.
+    max_dim
+        The maximum dimension for computing persistent homology.
+    n_cores
+        Number of cores to use for computing persistent homology for each cell.
+    vbcl_edge_weight
+        How filtration value for edges are assigned. 
+        'min' will assign the smaller node weight to the edge. 
+        'mean' will use the average of two node weights for each edge.
+    return_diagrams
+        Whether to return the computed persistence diagrams.
+    uns_name
+        The persistence diagrams are stored in ``adata.uns[uns_name]``.
+    
+    Returns
+    -------
+    diagrams: dict
+        A dictionary of diagrams to be stored in ``adata.uns[uns_name]``.
+        For example, the H1 diagram for the cell named 'A' can be accessed through ``diagrams['A']['dgm_h1]`` 
+        and the corresponding max_filtration value is in ``diagrams['A']['max_filtration']``.
+
     """
 
     manager = Manager()
@@ -65,15 +94,15 @@ def gene_network_topology(
             for process in processes:
                 process.join()
         print('Done', flush=True)
-    elif filtration == 'wvr':
-        for i in range(0, ncell, batch_size):
-            print(i)
-            processes = [Process(target=ph_process_wvr, args=(A,X_gnet,j,diagrams,max_filtration,max_dim)) for j in range(i, min(i+batch_size,ncell))]
-            for process in processes:
-                process.start()
-            for process in processes:
-                process.join()
-        print('Done', flush=True)
+    # elif filtration == 'wvr':
+    #     for i in range(0, ncell, batch_size):
+    #         print(i)
+    #         processes = [Process(target=ph_process_wvr, args=(A,X_gnet,j,diagrams,max_filtration,max_dim)) for j in range(i, min(i+batch_size,ncell))]
+    #         for process in processes:
+    #             process.start()
+    #         for process in processes:
+    #             process.join()
+    #     print('Done', flush=True)
     
     adata.uns[uns_name] = dict( diagrams )
 
@@ -83,20 +112,58 @@ def gene_network_topology(
         return 
 
 def cell_specific_gene_network_topology(
-    adata,
-    network_name = 'cell_specific_gene_network',
-    filtration = 'ewvr',
-    max_filtration = None,
-    max_dim = 1,
-    n_cores = 20,
-    return_diagrams = False,
-    uns_name = 'diagrams',
-    compute_csn = False,
-    csn_alpha = 0.01,
-    csn_boxsize = 0.1,
-    csn_weighted = False,
-    print_every_n_cell = 100,
+    adata: anndata.AnnData,
+    network_name: str = 'cell_specific_gene_network',
+    filtration: str = 'ewvr',
+    max_filtration: float = None,
+    max_dim: int = 1,
+    n_cores: int = 20,
+    return_diagrams: bool = False,
+    uns_name: str = 'diagrams',
+    compute_csn: bool = False,
+    csn_alpha: float = 0.01,
+    csn_boxsize: float = 0.1,
+    csn_weighted: float = True,
+    print_every_n_cell: str = 100,
 ):
+    """
+    Compute gene network topology for edge-weighted networks such as the cell-specific network.
+
+    Parameters
+    ----------
+    adata
+        The ``adata`` object of gene expression data.
+    network_name
+        The cell-specific network for the cell with cell name 'A' should be available in ``adata.uns[network_name]['A']``.
+    filtration
+        The filtration method for computing persistent homology. 'ewvr' for edge-weighted Vietoris-Rips complex filtration. Currently, only 'ewvr' is implemented.
+    max_filtration
+        The maximum filtration value. If ``None``, it is set to the maximum node weight.
+    max_dim
+        The maximum dimension for computing persistent homology.
+    n_cores
+        Number of cores to use for computing persistent homology for each cell.
+    return_diagrams
+        Whether to return the computed persistence diagrams.
+    uns_name
+        The persistence diagrams are stored in ``adata.uns[uns_name]``.
+    compute_csn
+        Whether to compute cell-specific network here. If ``True``,  precomputed CSN in ``adata.uns[network_name]`` is ignored.
+    csn_alpha
+        The alpha parameter in CSN computation, i.e., the p-value threshold for including a connection.
+    csn_boxsize
+        The boxsize for defining neighborhoods of gene expression in CSN method.
+    csn_weighted
+        Whether to output the weighted cell-specific networks.
+
+    Returns
+    -------
+    diagrams: dict
+        A dictionary of diagrams to be stored in ``adata.uns[uns_name]``.
+        For example, the H1 diagram for the cell named 'A' can be accessed through ``diagrams['A']['dgm_h1]`` 
+        and the corresponding max_filtration value is in ``diagrams['A']['max_filtration']``.    
+
+    """
     
     manager = Manager()
 
@@ -177,25 +244,83 @@ def cell_specific_gene_network_topology(
 
 
 def cell_network_topology(
-    adata,
-    network_name = 'connectivities',
-    embedding_name = 'X_pca',
-    method = 'lwph',
-    rlph_method = 'self',
-    rlph_base = 'all',
-    metric = 'euclidean',
-    nb_method = 'knn',
-    nb_distance = 20,
-    rl_distance = 10,
-    nb_knn = 20,
-    rl_knn = 10,
-    filtration_value = 'euclidean',
-    max_filtration = np.inf,
-    max_dim = 1,
-    n_cores = 20,
-    uns_name = 'cell_network_diagrams',
-    return_diagrams = False,
+    adata: anndata.AnnData,
+    network_name: str = 'connectivities',
+    embedding_name: str = 'X_pca',
+    method: str = 'lwph',
+    rlph_method: str = 'self',
+    rlph_base: str = 'all',
+    metric: str = 'euclidean',
+    nb_method: str = 'knn',
+    nb_distance: float = 20,
+    rl_distance: float = 10,
+    nb_knn: int = 20,
+    rl_knn: int = 10,
+    filtration_value: str = 'euclidean',
+    max_filtration: float = np.inf,
+    max_dim: int = 1,
+    n_cores: int = 20,
+    uns_name: str = 'cell_network_diagrams',
+    return_diagrams: bool = False,
 ):
+    """
+    Compute topology for each cell on the cell network.
+
+    Parameters
+    ----------
+    adata
+        The ``adata`` object of gene expression data.
+    network_name
+        The network of cells, e.g. a knn network to be used in ``adata.obsp[network_name]``.
+    embedding_name
+        The low-dimensional embedding of cells to be used to compute filtration values, stored in ``adata.obsm[embedding_name]``.
+    method
+        The persistent homology method to use.
+        'lwph' for local weighted persistent homology which computes Vietoris-Rips complex based PH on a local neighborhood of each cell.
+        'rlph' for relative local persistent homology which computes the relative persistent homology of the cell, i.e., the global topology relative to a cell or its local neighborhood.
+    rlph_method
+        When ``method`` is set to 'rlph', choose 'self' to compute persistent homology relative only to the cell, 
+        'knn' for relative to a neighborhood defined by k-nearest neighbors, or 'distance' for relative to a neighborhood defined by distance cutoff.
+    rlph_base
+        What points to include when computing the global topology. 'all' for including all points, 
+        'nb_knn' or 'nb_distance' for a relatively large neighborhood defined by k-nearest neighbors or distance cutoff, respectively.
+    metric
+        The metric used to define base point set for computing global topology when ``rlph_base`` is set to 'nb_knn' or 'nb_distance'.
+    nb_method
+        The method to define neighborhood of cells when ``method`` is set to 'lwph'. 'knn' for k-nearest neighbors or 'distance' for distance cutoff.
+    nb_distance
+        If ``nb_method`` is set to 'distance' in 'lwph' or ``rlph_base`` is set to 'nb_distance' in 'rlph', the distance cutoff to use.
+    rl_distance
+        If ``method`` is set to 'rlph' and ``rlph_method`` is set to 'distance', the distance cutoff to use to define the local cell neighborhood.
+    nb_knn
+        If ``nb_method`` is set to 'knn' in 'lwph' or ``rlph_base`` is set to 'nb_knn' in 'rlph', the k value to use.
+    rl_knn
+        If ``method`` is set to 'rlph' and ``rlph_method`` is set to 'knn', the k value to use to define the local cell neighborhood.
+    filtration_value
+        When 'lwph' is used, the filtration value to use. Currently, only Euclidean distance in the low-dimensional embedding is used.
+    max_filtration
+        The maximum filtration value. If ``None``, it is set to the maximum node weight.
+    max_dim
+        The maximum dimension for computing persistent homology.
+    n_cores
+        Number of cores to use for computing persistent homology for each cell.
+    return_diagrams
+        Whether to return the computed persistence diagrams.
+    uns_name
+        The persistence diagrams are stored in ``adata.uns[uns_name]``.
+    
+    Returns
+    -------
+    diagrams: dict
+        A dictionary of diagrams to be stored in ``adata.uns[uns_name]``.
+        For 'lwph', the H1 diagram for the cell named 'A' can be accessed through ``diagrams['A']['dgm_h1]`` 
+        and the corresponding max_filtration value is in ``diagrams['A']['max_filtration']``. 
+        
+        For 'rlph', the H1 relative PH results for base point set relative to local point set is in ``diagrams['A']['dgm_h1']``.
+        Additionally, the H1 regular PH results for the base point set is in ``diagrams['A']['dgm_h1_base']``.
+
+    """
+
     A = adata.obsp[network_name]
     X = adata.obsm[embedding_name]
     D = distance_matrix(X,X)
@@ -261,20 +386,62 @@ def preprocess_persistence_diagrams(
     return
 
 def generate_topology_feature(
-    adata,
-    method = 'pi',
-    inf_value = 'replace_max',
-    pi_pixel_sizes = [0.5, 0.5],
-    dims = [0,1],
-    pi_return_images = False,
-    diagram_name = None,
-    feature_name = None,
-    pi_birth_ranges = None,
-    pi_pers_ranges = None,
-    bc_n_intervals = [30,30],
-    bc_v_mins = [None, None],
-    bc_v_maxs = [None, None],
+    adata: anndata.AnnData,
+    method: str = 'tp',
+    inf_value: str = 'replace_max',
+    pi_pixel_sizes: list = [0.5, 0.5],
+    dims: list = [0,1],
+    pi_return_images: bool = False,
+    diagram_name: str = None,
+    feature_name: str = None,
+    pi_birth_ranges: list = None,
+    pi_pers_ranges: list = None,
+    bc_n_intervals: list = [30,30],
+    bc_v_mins: list = [None, None],
+    bc_v_maxs: list = [None, None],
 ):
+    """
+    Construct structured features from the unstructured output of persistent homology (persistence diagrams).
+
+    Parameters
+    ----------
+    adata
+        The ``anndata`` object of the gene expression data.
+    method
+        The method to use for computing features.
+        'tp' for total persistence (summation of death - birth values),
+        'std' for standard deviation of persistences,
+        'pe' for persistence entropy,
+        'bc' for Betti curves,
+        'pi' for persistence images.
+    inf_value
+        if ``inf_value`` is set to 'replace_max', infinities in persistence diagrams will be replaced by the max filtration values before computing the features.
+    pi_pixel_sizes
+        The pixel sizes to use for each dimension for persistence images. Should have the same length with ``dims``.
+    dims
+        Compute features for which dimensions of persistence diagrams.
+    pi_return_images
+        Whether to return the persistence image results.
+    diagram_name
+        The diagram to use for cell 'A' should be available at ``adata.uns[diagram_name]['A']``.
+    feature_name
+        The computed features will be stored in ``adata.obsm[feature_name]``.
+    pi_birth_ranges
+        The birth ranges to use in persistence images for each dimension. Should have the same length with ``dims``. If ``None``, it will be determined by the PI algorithm.
+    pi_pers_ranges
+        The persistence ranges to use in persistence images for each dimension. Should have the same length with ``dims``. If ``None``, it will be determined by the PI algorithm.
+    bc_n_intervals
+        The number of equal-length intervals to compute Betti curves. Should have the same length with ``dims``.
+    bc_v_mins
+        The left ends to compute Betti curves. Should have the same length with ``dims``.
+    bc_v_maxs
+        The right ends to compute Betti curves. Should have the same length with ``dims``.
+
+    Returns
+    -------
+    feature: np.ndarray
+        A ``n_cell x n_feature`` matrix in ``adata.obsm[feature_name]``.
+    """
     ncell = adata.shape[0]
     if method == 'pi':
         images, persimage_info = ph_feature_persimages(adata,
