@@ -52,6 +52,8 @@ sg.tl.generate_topology_feature(adata, method='pe', diagram_name='diagrams_ewvr'
 ```
 
 # Documentation and examples
+Detailed api documentation can be found [here](docs/_build/markdown/api/index.md).
+Several examples can be found in the `example` folder.
 
 # Reference
 
